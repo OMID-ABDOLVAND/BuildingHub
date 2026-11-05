@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: buildinghub-db
+    environment:
+      POSTGRES_DB: buildinghub
+      POSTGRES_USER: buildinghub
+      POSTGRES_PASSWORD: buildinghub
+    ports:
+      - "5433:5432"
+    volumes:
+      - buildinghub_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buildinghub -d buildinghub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  buildinghub_pgdata:

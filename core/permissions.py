@@ -1,4 +1,5 @@
-from rest_framework.permissions import BasePermission, SAFE_METHODS
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from buildings.models import Membership, UnitOccupancy
 
@@ -27,8 +28,20 @@ def user_unit_ids(user):
     )
 
 
+def is_platform_super_admin(user) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    return bool(getattr(user, "is_platform_super_admin", False) or user.is_superuser)
+
+
+def is_support_operator(user) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    return bool(getattr(user, "is_support_operator", False) or is_platform_super_admin(user))
+
+
 def is_manager_of(user, building_id: int) -> bool:
-    return building_id in managed_building_ids(user) or user.is_superuser
+    return building_id in managed_building_ids(user) or is_platform_super_admin(user)
 
 
 def is_member_of(user, building_id: int) -> bool:
@@ -36,9 +49,78 @@ def is_member_of(user, building_id: int) -> bool:
 
 
 def can_access_unit(user, unit) -> bool:
-    if user.is_superuser or is_manager_of(user, unit.building_id):
+    if is_platform_super_admin(user) or is_manager_of(user, unit.building_id):
         return True
     return unit.id in user_unit_ids(user)
+
+
+def get_building_subscription(building):
+    if building is None:
+        return None
+    return building.current_subscription()
+
+
+def building_management_allowed(building) -> bool:
+    """Full write access for building management operations."""
+    if building is None:
+        return False
+    from buildings.models import Building
+    from subscriptions.models import Subscription
+
+    if building.status != Building.Status.ACTIVE:
+        return False
+    sub = get_building_subscription(building)
+    if sub is None:
+        return False
+    return sub.status == Subscription.Status.ACTIVE
+
+
+def building_read_allowed(building) -> bool:
+    """Read historical data while ACTIVE / GRACE / EXPIRED (building not rejected)."""
+    if building is None:
+        return False
+    from buildings.models import Building
+    from subscriptions.models import Subscription
+
+    if building.status == Building.Status.REJECTED:
+        return False
+    if building.status == Building.Status.PENDING:
+        return True  # manager can see own pending building
+    sub = get_building_subscription(building)
+    if sub is None:
+        return building.status == Building.Status.ACTIVE
+    return sub.status in {
+        Subscription.Status.ACTIVE,
+        Subscription.Status.GRACE_PERIOD,
+        Subscription.Status.EXPIRED,
+        Subscription.Status.PENDING_PAYMENT,
+        Subscription.Status.PENDING_APPROVAL,
+        Subscription.Status.SUSPENDED,
+    }
+
+
+def building_renewal_allowed(building) -> bool:
+    from subscriptions.models import Subscription
+
+    sub = get_building_subscription(building)
+    if sub is None:
+        return True
+    return sub.status in {
+        Subscription.Status.ACTIVE,
+        Subscription.Status.GRACE_PERIOD,
+        Subscription.Status.EXPIRED,
+        Subscription.Status.PENDING_PAYMENT,
+        Subscription.Status.REJECTED,
+        Subscription.Status.SUSPENDED,
+    }
+
+
+def assert_building_write_allowed(building):
+    if not building_management_allowed(building):
+        raise PermissionDenied(
+            "عملیات مدیریتی ساختمان فقط با اشتراک فعال مجاز است. "
+            "در دوره ارفاق یا پس از انقضا فقط مشاهده و تمدید امکان‌پذیر است."
+        )
 
 
 class IsAuthenticated(BasePermission):
@@ -46,11 +128,21 @@ class IsAuthenticated(BasePermission):
         return bool(request.user and request.user.is_authenticated)
 
 
+class IsSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return is_platform_super_admin(request.user)
+
+
+class IsSupportOperator(BasePermission):
+    def has_permission(self, request, view):
+        return is_support_operator(request.user)
+
+
 class IsBuildingManager(BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        if request.user.is_superuser:
+        if is_platform_super_admin(request.user):
             return True
         return bool(managed_building_ids(request.user))
 
@@ -79,3 +171,26 @@ class IsBuildingMember(BasePermission):
 class ReadOnly(BasePermission):
     def has_permission(self, request, view):
         return request.method in SAFE_METHODS
+
+
+class BuildingWriteGate(BasePermission):
+    """Block mutating building-management ops unless subscription is ACTIVE."""
+
+    message = "اشتراک فعال برای این عملیات لازم است."
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        if is_platform_super_admin(request.user):
+            return True
+        return True  # object-level / view-level checks apply
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in SAFE_METHODS:
+            return True
+        if is_platform_super_admin(request.user):
+            return True
+        building = obj if obj.__class__.__name__ == "Building" else getattr(obj, "building", None)
+        if building is None and hasattr(obj, "unit"):
+            building = obj.unit.building
+        return building_management_allowed(building)

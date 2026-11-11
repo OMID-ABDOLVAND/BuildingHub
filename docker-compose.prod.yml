@@ -1,0 +1,92 @@
+name: buildinghub
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: buildinghub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-buildinghub}
+      POSTGRES_USER: ${POSTGRES_USER:-buildinghub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - buildinghub_pgdata:/var/lib/postgresql/data
+    networks:
+      - buildinghub_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-buildinghub} -d ${POSTGRES_DB:-buildinghub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    # No host port publish — stay isolated from other projects' Postgres
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: buildinghub-backend:prod
+    container_name: buildinghub-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      USE_SQLITE: "False"
+      DEBUG: "False"
+    volumes:
+      - buildinghub_media:/app/media
+      - buildinghub_static:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - buildinghub_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/schema/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Optional direct API access for debugging (does not collide with 8000 if taken)
+    ports:
+      - "${BACKEND_HOST_PORT:-18080}:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    image: buildinghub-frontend:prod
+    container_name: buildinghub-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - buildinghub_media:/media:ro
+    networks:
+      - buildinghub_net
+    ports:
+      - "${FRONTEND_HOST_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  buildinghub_net:
+    name: buildinghub_net
+    driver: bridge
+
+volumes:
+  buildinghub_pgdata:
+    name: buildinghub_pgdata
+  buildinghub_media:
+    name: buildinghub_media
+  buildinghub_static:
+    name: buildinghub_static

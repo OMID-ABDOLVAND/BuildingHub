@@ -9,6 +9,8 @@ User = get_user_model()
 class BuildingSerializer(serializers.ModelSerializer):
     manager_name = serializers.CharField(source="manager.get_full_name", read_only=True)
     units_count = serializers.IntegerField(source="units.count", read_only=True)
+    subscription_status = serializers.SerializerMethodField()
+    management_allowed = serializers.SerializerMethodField()
 
     class Meta:
         model = Building
@@ -21,12 +23,26 @@ class BuildingSerializer(serializers.ModelSerializer):
             "manager_name",
             "contact_phone",
             "contact_email",
+            "floors_count",
+            "apartments_count",
+            "status",
             "is_active",
             "units_count",
+            "subscription_status",
+            "management_allowed",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["manager", "created_at", "updated_at"]
+        read_only_fields = ["manager", "status", "is_active", "created_at", "updated_at"]
+
+    def get_subscription_status(self, obj):
+        sub = obj.current_subscription()
+        return sub.status if sub else None
+
+    def get_management_allowed(self, obj):
+        from core.permissions import building_management_allowed
+
+        return building_management_allowed(obj)
 
 
 class UnitSerializer(serializers.ModelSerializer):

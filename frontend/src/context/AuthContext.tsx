@@ -14,6 +14,7 @@ type AuthContextValue = {
   user: User | null
   loading: boolean
   isManager: boolean
+  isSuperAdmin: boolean
   activeBuildingId: number | null
   setActiveBuildingId: (id: number | null) => void
   login: (username: string, password: string) => Promise<User>
@@ -85,7 +86,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
-      isManager: !!user && (user.roles.includes('manager') || user.managed_buildings.length > 0),
+      isManager:
+        !!user &&
+        (user.roles.includes('manager') ||
+          user.roles.includes('building_manager') ||
+          user.managed_buildings.length > 0),
+      isSuperAdmin:
+        !!user && (user.roles.includes('super_admin') || user.platform_role === 'SUPER_ADMIN'),
       activeBuildingId,
       setActiveBuildingId: (id: number | null) => {
         setActiveBuildingId(id)

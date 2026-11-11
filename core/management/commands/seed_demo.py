@@ -12,6 +12,14 @@ from core.receipt_images import make_bank_receipt, make_maintenance_photo
 from finance.models import Expense, ExpenseAllocation, Payment, PaymentReceipt
 from finance.services import AllocationInput, compute_allocations
 from maintenance.models import MaintenanceRequest, RequestMessage
+from subscriptions.models import (
+    PlatformSettings,
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionPlanPricing,
+)
+from subscriptions.services import activate_subscription, create_subscription_for_building
+from support.models import SupportTicket
 
 User = get_user_model()
 
@@ -61,6 +69,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if options["reset"]:
             self.stdout.write("Resetting demo domain data…")
+            SupportTicket.objects.all().delete()
+            Subscription.objects.all().delete()
+            SubscriptionPlanPricing.objects.all().delete()
+            SubscriptionPlan.objects.all().delete()
             PaymentReceipt.objects.all().delete()
             Payment.objects.all().delete()
             ExpenseAllocation.objects.all().delete()
@@ -77,6 +89,48 @@ class Command(BaseCommand):
 
         today = timezone.localdate()
         now = timezone.now()
+
+        # ---- SaaS plans + platform settings ----
+        plan_specs = [
+            ("Basic", "۱ تا ۱۰ واحد", 1, 10, 500_000, 5_000_000, 1),
+            ("Standard", "۱۱ تا ۳۰ واحد", 11, 30, 900_000, 9_000_000, 2),
+            ("Professional", "۳۱ تا ۶۰ واحد", 31, 60, 1_500_000, 15_000_000, 3),
+            ("Enterprise", "۶۱ تا ۱۰۰ واحد", 61, 100, 2_500_000, 25_000_000, 4),
+            ("Custom", "بالای ۱۰۰ واحد", 101, 10000, 4_000_000, 40_000_000, 5),
+        ]
+        for name, desc, mn, mx, monthly, yearly, order in plan_specs:
+            plan, _ = SubscriptionPlan.objects.get_or_create(
+                name=name,
+                defaults={
+                    "description": desc,
+                    "min_apartments": mn,
+                    "max_apartments": mx,
+                    "display_order": order,
+                    "is_active": True,
+                    "monthly_features": ["مدیریت ساختمان", "هزینه و پرداخت"],
+                    "yearly_features": ["همه امکانات ماهانه", "تخفیف سالانه"],
+                },
+            )
+            SubscriptionPlanPricing.objects.update_or_create(
+                plan=plan,
+                duration=SubscriptionPlanPricing.Duration.MONTHLY,
+                defaults={"price_toman": monthly, "is_active": True},
+            )
+            SubscriptionPlanPricing.objects.update_or_create(
+                plan=plan,
+                duration=SubscriptionPlanPricing.Duration.YEARLY,
+                defaults={"price_toman": yearly, "is_active": True},
+            )
+
+        settings = PlatformSettings.get_solo()
+        settings.grace_period_days = 7
+        settings.destination_card_number = "6037-9912-3456-7890"
+        settings.cardholder_name = "شرکت BuildingHub"
+        settings.bank_name = "بانک ملی"
+        settings.payment_instructions = "مبلغ را کارت‌به‌کارت کنید و رسید را آپلود نمایید."
+        settings.support_email = "support@buildinghub.local"
+        settings.support_phone = "02191000000"
+        settings.save()
 
         # ---- users ----
         manager, _ = User.objects.get_or_create(
@@ -147,10 +201,16 @@ class Command(BaseCommand):
                 "manager": manager,
                 "contact_phone": "02188887766",
                 "contact_email": "info@aseman.local",
+                "floors_count": 4,
+                "apartments_count": 12,
+                "status": Building.Status.ACTIVE,
             },
         )
         building.manager = manager
         building.description = "ساختمان ۱۲ واحدی نمونه با آسانسور و نگهبانی"
+        building.floors_count = 4
+        building.apartments_count = 12
+        building.status = Building.Status.ACTIVE
         building.save()
 
         building2, _ = Building.objects.get_or_create(
@@ -161,6 +221,26 @@ class Command(BaseCommand):
                 "manager": manager,
                 "contact_phone": "02122001122",
                 "contact_email": "info@sepidar.local",
+                "floors_count": 2,
+                "apartments_count": 6,
+                "status": Building.Status.ACTIVE,
+            },
+        )
+        building2.floors_count = 2
+        building2.apartments_count = 6
+        building2.status = Building.Status.ACTIVE
+        building2.save()
+
+        pending_building, _ = Building.objects.get_or_create(
+            name="برج در انتظار تأیید",
+            defaults={
+                "address": "تهران، نیاوران",
+                "description": "نمونه ساختمان PENDING برای آنبوردینگ",
+                "manager": manager,
+                "floors_count": 3,
+                "apartments_count": 8,
+                "status": Building.Status.PENDING,
+                "contact_phone": "02111112222",
             },
         )
 
@@ -625,6 +705,30 @@ class Command(BaseCommand):
                 )
 
         # ---- audit samples ----
+        # ---- subscriptions for active buildings ----
+        for b, duration in ((building, Subscription.Duration.YEARLY), (building2, Subscription.Duration.MONTHLY)):
+            existing = b.subscriptions.filter(status=Subscription.Status.ACTIVE).first()
+            if not existing:
+                sub = create_subscription_for_building(building=b, duration=duration, created_by=manager)
+                activate_subscription(sub, actor=manager)
+
+        if not pending_building.subscriptions.exists():
+            create_subscription_for_building(
+                building=pending_building,
+                duration=Subscription.Duration.MONTHLY,
+                created_by=manager,
+            )
+
+        if not SupportTicket.objects.filter(subject="سوال درباره تمدید").exists():
+            SupportTicket.objects.create(
+                building=building,
+                created_by=manager,
+                subject="سوال درباره تمدید",
+                category=SupportTicket.Category.SUBSCRIPTION,
+                priority=SupportTicket.Priority.NORMAL,
+                description="چطور اشتراک سالانه را تمدید کنم؟",
+            )
+
         if not AuditLog.objects.filter(action="seed.demo").exists():
             AuditLog.objects.create(
                 user=manager,
@@ -633,11 +737,12 @@ class Command(BaseCommand):
                 entity_type="System",
                 entity_id="demo",
                 changes={
-                    "buildings": 2,
+                    "buildings": Building.objects.count(),
                     "units": Unit.objects.count(),
                     "residents": len(residents),
                     "expenses": Expense.objects.count(),
                     "payments": Payment.objects.count(),
+                    "plans": SubscriptionPlan.objects.count(),
                 },
             )
             AuditLog.objects.create(
@@ -672,10 +777,17 @@ class Command(BaseCommand):
         self.stdout.write("resident7   / Resident123!    (کیان جعفری — واحد ۴۰۱)")
         self.stdout.write("resident8   / Resident123!    (الهام نوری — واحد ۴۰۲)")
         self.stdout.write("=" * 56)
+        self.stdout.write("Create SUPER_ADMIN with:")
+        self.stdout.write(
+            '  python manage.py createsuperadmin --username admin --email admin@local --password "ChangeMe123!"'
+        )
+        self.stdout.write("=" * 56)
         self.stdout.write(
             f"Stats: buildings={Building.objects.count()} units={Unit.objects.count()} "
             f"expenses={Expense.objects.count()} payments={Payment.objects.count()} "
             f"maintenance={MaintenanceRequest.objects.count()} "
             f"announcements={Announcement.objects.count()} "
-            f"notifications={Notification.objects.count()}"
+            f"notifications={Notification.objects.count()} "
+            f"plans={SubscriptionPlan.objects.count()} "
+            f"subscriptions={Subscription.objects.count()}"
         )

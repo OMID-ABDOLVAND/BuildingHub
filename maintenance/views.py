@@ -7,8 +7,10 @@ from rest_framework.response import Response
 
 from communications.models import Notification
 from core.permissions import (
+    assert_building_write_allowed,
     can_access_unit,
     is_manager_of,
+    is_platform_super_admin,
     managed_building_ids,
     user_unit_ids,
 )
@@ -87,6 +89,8 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
         req = self.get_object()
         if not is_manager_of(request.user, req.building_id):
             raise PermissionDenied("فقط مدیر می‌تواند وضعیت را تغییر دهد.")
+        if not is_platform_super_admin(request.user):
+            assert_building_write_allowed(req.building)
         serializer = MaintenanceStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

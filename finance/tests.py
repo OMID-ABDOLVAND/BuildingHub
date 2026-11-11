@@ -72,9 +72,35 @@ class PaymentWorkflowTests(TestCase):
         self.manager = User.objects.create_user("mgr", password="pass12345", first_name="مدیر")
         self.resident = User.objects.create_user("res", password="pass12345", first_name="ساکن")
         self.other = User.objects.create_user("other", password="pass12345")
-        self.building = Building.objects.create(name="B1", manager=self.manager, address="x")
+        self.building = Building.objects.create(
+            name="B1",
+            manager=self.manager,
+            address="x",
+            status=Building.Status.ACTIVE,
+            apartments_count=10,
+        )
         Membership.objects.create(
             user=self.manager, building=self.building, role=Membership.Role.MANAGER
+        )
+        from subscriptions.models import Subscription, SubscriptionPlan, SubscriptionPlanPricing
+
+        plan = SubscriptionPlan.objects.create(
+            name="Test", min_apartments=1, max_apartments=100, is_active=True
+        )
+        SubscriptionPlanPricing.objects.create(
+            plan=plan, duration=SubscriptionPlanPricing.Duration.MONTHLY, price_toman=1000
+        )
+        Subscription.objects.create(
+            building=self.building,
+            plan=plan,
+            plan_name_snapshot="Test",
+            duration=Subscription.Duration.MONTHLY,
+            status=Subscription.Status.ACTIVE,
+            apartment_capacity_snapshot=10,
+            price_snapshot_toman=1000,
+            final_price_toman=1000,
+            starts_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(days=30),
         )
         Membership.objects.create(
             user=self.resident, building=self.building, role=Membership.Role.RESIDENT

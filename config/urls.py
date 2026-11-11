@@ -17,6 +17,8 @@ urlpatterns = [
     path("api/v1/", include("finance.urls")),
     path("api/v1/", include("maintenance.urls")),
     path("api/v1/", include("communications.urls")),
+    path("api/v1/", include("subscriptions.urls")),
+    path("api/v1/", include("support.urls")),
     path("api/v1/dashboard/manager/", ManagerDashboardView.as_view()),
     path("api/v1/dashboard/resident/", ResidentDashboardView.as_view()),
     path("api/v1/reports/", ReportsView.as_view()),

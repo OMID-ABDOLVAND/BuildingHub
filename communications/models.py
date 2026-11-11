@@ -31,6 +31,9 @@ class Notification(TimeStampedModel):
         ANNOUNCEMENT = "announcement", "اطلاعیه"
         MESSAGE = "message", "پیام"
         SYSTEM = "system", "سیستم"
+        SUBSCRIPTION = "subscription", "اشتراک"
+        SUPPORT = "support", "پشتیبانی"
+        INVITATION = "invitation", "دعوت"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

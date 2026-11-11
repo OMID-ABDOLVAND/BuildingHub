@@ -55,6 +55,17 @@ export function LoginPage() {
                 {loading ? 'در حال ورود…' : 'ورود'}
               </Button>
             </form>
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <a href="/register" className="text-teal-700">
+                ثبت‌نام مدیر
+              </a>
+              <a href="/forgot-password" className="text-teal-700">
+                فراموشی رمز
+              </a>
+              <a href="/" className="text-teal-700">
+                صفحه اصلی
+              </a>
+            </div>
             <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-muted">
               مدیر: manager / Manager123!
               <br />

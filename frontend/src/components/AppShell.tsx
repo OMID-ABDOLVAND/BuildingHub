@@ -21,7 +21,7 @@ import type { Building } from '@/types'
 import { cn } from './ui'
 
 export function AppShell() {
-  const { user, isManager, logout, activeBuildingId, setActiveBuildingId } = useAuth()
+  const { user, isManager, isSuperAdmin, logout, activeBuildingId, setActiveBuildingId } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [buildings, setBuildings] = useState<Building[]>([])
@@ -37,10 +37,13 @@ export function AppShell() {
     { to: '/app/buildings', label: 'ساختمان‌ها', icon: Building2 },
     { to: '/app/units', label: 'واحدها', icon: Building2 },
     { to: '/app/residents', label: 'ساکنین', icon: Users },
+    { to: '/app/invitations', label: 'دعوت‌ها', icon: Users },
     { to: '/app/expenses', label: 'هزینه‌ها', icon: Receipt },
     { to: '/app/payments', label: 'رسیدها', icon: FileText },
     { to: '/app/maintenance', label: 'تعمیرات', icon: Wrench },
     { to: '/app/announcements', label: 'اطلاعیه‌ها', icon: ClipboardList },
+    { to: '/app/subscription', label: 'اشتراک', icon: Shield },
+    { to: '/app/support', label: 'پشتیبانی', icon: ClipboardList },
     { to: '/app/reports', label: 'گزارش‌ها', icon: FileText },
     { to: '/app/audit', label: 'تاریخچه', icon: Shield },
     { to: '/app/notifications', label: 'اعلان‌ها', icon: Bell },
@@ -79,6 +82,16 @@ export function AppShell() {
           </button>
         </div>
         <nav className="space-y-1 px-3 pb-6">
+          {isSuperAdmin ? (
+            <NavLink
+              to="/admin"
+              onClick={() => setOpen(false)}
+              className="mb-2 flex items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white"
+            >
+              <Shield size={18} />
+              پنل سوپرادمین
+            </NavLink>
+          ) : null}
           {links.map((item) => (
             <NavLink
               key={item.to}
@@ -126,7 +139,9 @@ export function AppShell() {
           <div className="flex items-center gap-3">
             <div className="hidden text-left sm:block">
               <div className="text-sm font-medium">{user?.full_name}</div>
-              <div className="text-xs text-muted">{isManager ? 'مدیر ساختمان' : 'ساکن'}</div>
+              <div className="text-xs text-muted">
+                {isSuperAdmin ? 'سوپرادمین' : isManager ? 'مدیر ساختمان' : 'ساکن'}
+              </div>
             </div>
             <button
               className="rounded-xl border border-line p-2 text-muted hover:text-danger"

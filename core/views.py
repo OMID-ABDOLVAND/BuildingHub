@@ -260,4 +260,30 @@ class ProtectedMediaView(APIView):
                 raise Http404()
             return FileResponse(req.image.open("rb"), as_attachment=False)
 
+        if kind == "subscription_receipt":
+            from core.permissions import is_platform_super_admin
+            from subscriptions.models import SubscriptionPayment
+
+            payment = get_object_or_404(
+                SubscriptionPayment.objects.select_related("subscription__building", "receipt"),
+                pk=pk,
+            )
+            building = payment.subscription.building
+            if not (
+                is_platform_super_admin(request.user)
+                or is_manager_of(request.user, building.id)
+            ):
+                raise Http404()
+            try:
+                receipt = payment.receipt
+            except Exception:
+                raise Http404()
+            if not receipt.file:
+                raise Http404()
+            return FileResponse(
+                receipt.file.open("rb"),
+                as_attachment=False,
+                filename=receipt.original_name or receipt.file.name,
+            )
+
         raise Http404()

@@ -10,8 +10,10 @@ from rest_framework.response import Response
 from buildings.models import Unit
 from communications.models import Notification
 from core.permissions import (
+    assert_building_write_allowed,
     can_access_unit,
     is_manager_of,
+    is_platform_super_admin,
     managed_building_ids,
     resident_building_ids,
     user_unit_ids,
@@ -58,6 +60,8 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         building = serializer.validated_data["building"]
         if not is_manager_of(request.user, building.id):
             raise PermissionDenied("فقط مدیر می‌تواند هزینه ثبت کند.")
+        if not is_platform_super_admin(request.user):
+            assert_building_write_allowed(building)
         included_ids = serializer.validated_data.pop("included_unit_ids", [])
         serializer.validated_data.pop("custom_shares", None)
         expense = serializer.save(created_by=request.user, status=Expense.Status.DRAFT)
@@ -169,6 +173,8 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         )
         if not is_manager_of(request.user, expense.building_id):
             raise PermissionDenied("دسترسی غیرمجاز.")
+        if not is_platform_super_admin(request.user):
+            assert_building_write_allowed(expense.building)
         if expense.status != Expense.Status.DRAFT:
             raise ValidationError("این هزینه قبلاً نهایی شده یا باطل است.")
         custom_shares = request.data.get("custom_shares")
@@ -351,6 +357,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
         ).get(pk=pk)
         if not is_manager_of(request.user, payment.allocation.expense.building_id):
             raise PermissionDenied("فقط مدیر می‌تواند رسید را بررسی کند.")
+        if not is_platform_super_admin(request.user):
+            assert_building_write_allowed(payment.allocation.expense.building)
         if payment.status != Payment.Status.PENDING:
             raise ValidationError("این پرداخت قبلاً بررسی شده است.")
 

@@ -16,9 +16,11 @@ from buildings.serializers import (
 )
 from core.permissions import (
     IsBuildingManager,
+    assert_building_write_allowed,
     can_access_unit,
     is_manager_of,
     is_member_of,
+    is_platform_super_admin,
     managed_building_ids,
     resident_building_ids,
 )
@@ -35,13 +37,17 @@ class BuildingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_superuser:
+        if is_platform_super_admin(user):
             return Building.objects.all()
         ids = managed_building_ids(user) | resident_building_ids(user)
         return Building.objects.filter(id__in=ids)
 
     def perform_create(self, serializer):
-        building = serializer.save(manager=self.request.user)
+        # Direct create keeps PENDING until subscription approval (SaaS onboarding preferred).
+        building = serializer.save(
+            manager=self.request.user,
+            status=Building.Status.PENDING,
+        )
         Membership.objects.get_or_create(
             user=self.request.user,
             building=building,
@@ -60,6 +66,8 @@ class BuildingViewSet(viewsets.ModelViewSet):
         building = self.get_object()
         if not is_manager_of(self.request.user, building.id):
             raise PermissionDenied("فقط مدیر ساختمان می‌تواند ویرایش کند.")
+        if not is_platform_super_admin(self.request.user):
+            assert_building_write_allowed(building)
         building = serializer.save()
         audit(
             self.request,
@@ -92,6 +100,12 @@ class UnitViewSet(viewsets.ModelViewSet):
         building = serializer.validated_data["building"]
         if not is_manager_of(self.request.user, building.id):
             raise PermissionDenied("فقط مدیر می‌تواند واحد ایجاد کند.")
+        if not is_platform_super_admin(self.request.user):
+            assert_building_write_allowed(building)
+        if building.apartments_count and building.units.count() >= building.apartments_count:
+            raise ValidationError(
+                {"building": "ظرفیت واحدهای این ساختمان تکمیل است. برای افزایش ظرفیت ارتقا لازم است."}
+            )
         unit = serializer.save()
         audit(
             self.request,
@@ -106,6 +120,8 @@ class UnitViewSet(viewsets.ModelViewSet):
         unit = self.get_object()
         if not is_manager_of(self.request.user, unit.building_id):
             raise PermissionDenied("فقط مدیر می‌تواند واحد را ویرایش کند.")
+        if not is_platform_super_admin(self.request.user):
+            assert_building_write_allowed(unit.building)
         # Note: changing resident_count/area does NOT alter finalized allocations
         unit = serializer.save()
         audit(
@@ -133,6 +149,8 @@ class MembershipViewSet(viewsets.ModelViewSet):
         building = serializer.validated_data["building"]
         if not is_manager_of(self.request.user, building.id):
             raise PermissionDenied("فقط مدیر می‌تواند عضویت ایجاد کند.")
+        if not is_platform_super_admin(self.request.user):
+            assert_building_write_allowed(building)
         membership = serializer.save()
         audit(
             self.request,
@@ -159,6 +177,8 @@ class UnitOccupancyViewSet(viewsets.ModelViewSet):
         unit = serializer.validated_data["unit"]
         if not is_manager_of(self.request.user, unit.building_id):
             raise PermissionDenied("فقط مدیر می‌تواند سکونت ثبت کند.")
+        if not is_platform_super_admin(self.request.user):
+            assert_building_write_allowed(unit.building)
         occupancy = serializer.save()
         Membership.objects.get_or_create(
             user=occupancy.user,
@@ -185,6 +205,8 @@ class UnitOccupancyViewSet(viewsets.ModelViewSet):
             raise ValidationError({"unit_id": "واحد یافت نشد."})
         if not is_manager_of(request.user, unit.building_id):
             raise PermissionDenied("دسترسی غیرمجاز.")
+        if not is_platform_super_admin(request.user):
+            assert_building_write_allowed(unit.building)
 
         if User.objects.filter(username=data["username"]).exists():
             raise ValidationError({"username": "نام کاربری تکراری است."})

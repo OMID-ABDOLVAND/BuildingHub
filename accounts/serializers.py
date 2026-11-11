@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from buildings.models import Membership
-from core.permissions import managed_building_ids, resident_building_ids
+from core.permissions import is_platform_super_admin, managed_building_ids, resident_building_ids
 
 User = get_user_model()
 
@@ -13,6 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
     managed_buildings = serializers.SerializerMethodField()
     member_buildings = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
+    platform_role = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
@@ -28,6 +29,7 @@ class UserSerializer(serializers.ModelSerializer):
             "managed_buildings",
             "member_buildings",
             "roles",
+            "platform_role",
             "is_staff",
             "date_joined",
         ]
@@ -43,12 +45,21 @@ class UserSerializer(serializers.ModelSerializer):
         return list(resident_building_ids(obj))
 
     def get_roles(self, obj):
-        roles = set(
+        roles = set()
+        if is_platform_super_admin(obj):
+            roles.add("super_admin")
+        membership_roles = set(
             Membership.objects.filter(user=obj, status=Membership.Status.ACTIVE).values_list(
                 "role", flat=True
             )
         )
-        if obj.is_superuser:
+        if Membership.Role.MANAGER in membership_roles or obj.managed_buildings.exists():
+            roles.add("building_manager")
+            roles.add("manager")  # backward compatible
+        if Membership.Role.RESIDENT in membership_roles:
+            roles.add("resident")
+        if obj.is_superuser and "building_manager" not in roles and "resident" not in roles:
+            roles.add("building_manager")
             roles.add("manager")
         return sorted(roles)
 
@@ -88,3 +99,41 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["first_name", "last_name", "email", "phone", "national_id"]
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField()
+    new_password = serializers.CharField()
+    new_password_confirm = serializers.CharField()
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "رمز عبور و تکرار آن یکسان نیستند."}
+            )
+        validate_password(attrs["new_password"])
+        return attrs
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone"):
+            raise serializers.ValidationError("ایمیل یا موبایل الزامی است.")
+        return attrs
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    new_password = serializers.CharField()
+    new_password_confirm = serializers.CharField()
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "رمز عبور و تکرار آن یکسان نیستند."}
+            )
+        validate_password(attrs["new_password"])
+        return attrs

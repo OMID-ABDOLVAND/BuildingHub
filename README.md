@@ -1,37 +1,48 @@
 # BuildingHub
 
-سامانه مدیریت ساختمان (Django + DRF + React + PostgreSQL)
+سامانهٔ چندمستأجری SaaS مدیریت ساختمان (Django + DRF + React + PostgreSQL)
 
 ## قابلیت‌ها
 
-- مدیریت ساختمان، واحد، عضویت و سکونت
-- ثبت هزینه و ۴ روش تقسیم (مساوی / نفرات / متراژ / سفارشی) با snapshot
-- پرداخت دستی + آپلود رسید + تأیید/رد مدیر + پرداخت جزئی
-- درخواست تعمیر، پیام‌رسانی، اطلاعیه و اعلان درون‌سامانه‌ای
-- داشبورد مدیر/ساکن، گزارش مالی، Audit Log
-- JWT، کنترل دسترسی سمت سرور، فایل‌های محافظت‌شده
+### مدیریت ساختمان (موجود)
+- ساختمان، واحد، عضویت، سکونت (مالک/مستأجر)
+- هزینه با ۴ روش تقسیم + snapshot + پرداخت جزئی و تأیید رسید
+- تعمیرات، اطلاعیه، اعلان، گزارش، Audit Log
+- JWT و isolation سمت سرور
+
+### لایه SaaS (جدید)
+- ثبت‌نام مدیر + آنبوردینگ ساختمان
+- پلن‌های اشتراک ماهانه/سالانه با قیمت‌گذاری قابل تنظیم
+- پرداخت کارت‌به‌کارت + آپلود رسید + تأیید/رد سوپرادمین
+- Grace period قابل تنظیم + دستور `process_subscriptions`
+- دعوت ساکن با توکن یک‌بارمصرف
+- تیکت پشتیبانی مستقل از تعمیرات
+- پنل سوپرادمین با آمار واقعی
+- PWA (manifest + service worker بدون کش دادهٔ خصوصی)
+- UI فارسی RTL
 
 ## پیش‌نیاز
 
 - Python 3.11+
 - Node.js 20+
-- Docker (برای PostgreSQL)
+- Docker (برای PostgreSQL) یا `USE_SQLITE=True`
 
-## راه‌اندازی سریع
+## راه‌اندازی
 
 ```bash
-# 1) دیتابیس
 cd E:\BuildingHub
 docker compose up -d
 
-# 2) بک‌اند
 python -m pip install -r requirements.txt
 copy .env.example .env   # در صورت نیاز
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
+```
 
-# 3) فرانت‌اند
+Frontend:
+
+```bash
 cd frontend
 npm install --registry https://registry.npmjs.org/
 npm run dev
@@ -41,17 +52,31 @@ npm run dev
 - API docs: http://127.0.0.1:8000/api/docs/
 - Backend: http://127.0.0.1:8000/api/v1/
 
-## حساب‌های دمو
+## ساخت سوپرادمین
+
+حساب سوپرادمین به‌صورت hardcode ساخته نمی‌شود:
+
+```bash
+python manage.py createsuperadmin --username admin --email admin@buildinghub.local --password "ChangeMe123!" --phone 09120000000
+```
+
+سپس وارد `/admin` در فرانت یا Django admin شوید.
+
+## انقضای اشتراک (cron)
+
+```bash
+python manage.py process_subscriptions
+```
+
+## حساب‌های دمو (`seed_demo`)
 
 | نقش | نام کاربری | رمز | توضیح |
 |---|---|---|---|
-| مدیر | `manager` | `Manager123!` | علی مدیری — برج آسمان + سپیدار |
-| مدیر کمکی | `assistant` | `Assistant123!` | مریم کاظمی — برج آسمان |
-| ساکن | `resident1` | `Resident123!` | رضا احمدی — واحد ۱۰۱ (+ سپیدار ۱۱) |
-| ساکن | `resident2` | `Resident123!` | سارا محمدی — واحد ۱۰۲ |
-| ساکن | `resident3` … `resident8` | `Resident123!` | ساکنین واحدهای ۲۰۱ تا ۴۰۲ |
+| مدیر | `manager` | `Manager123!` | برج آسمان + سپیدار (ACTIVE) |
+| مدیر کمکی | `assistant` | `Assistant123!` | برج آسمان |
+| ساکن | `resident1` … `resident8` | `Resident123!` | واحدهای نمونه |
 
-برای بازنشانی و تکمیل مجدد دیتا:
+`seed_demo` پلن‌ها، تنظیمات کارت، یک ساختمان PENDING و اشتراک‌های ACTIVE را هم می‌سازد.
 
 ```bash
 python manage.py seed_demo --reset
@@ -60,18 +85,36 @@ python manage.py seed_demo --reset
 ## تست
 
 ```bash
-python manage.py test finance.tests -v 2
+# Windows PowerShell
+$env:USE_SQLITE='True'; python manage.py test finance.tests subscriptions.tests -v 2
 ```
+
+## APIهای کلیدی SaaS
+
+| مسیر | توضیح |
+|---|---|
+| `POST /api/v1/auth/register-manager/` | ثبت‌نام مدیر |
+| `POST /api/v1/onboarding/building/` | ساخت ساختمان PENDING |
+| `POST /api/v1/onboarding/select-plan/` | انتخاب پلن |
+| `POST /api/v1/onboarding/submit-payment/` | پرداخت + رسید |
+| `POST /api/v1/admin/subscription-payments/{id}/approve/` | تأیید پرداخت |
+| `POST /api/v1/invitations/` / `accept/` | دعوت ساکن |
+| `GET/POST /api/v1/support/tickets/` | پشتیبانی |
+| `GET /api/v1/admin/dashboard/stats/` | آمار پلتفرم |
+
+## صفحات فرانت
+
+- عمومی: `/` `/pricing` `/register` `/login` `/onboarding` `/forgot-password` `/invite/:token`
+- مدیر: `/app/*` شامل اشتراک، دعوت، پشتیبانی
+- سوپرادمین: `/admin/*`
 
 ## ساختار
 
 ```
 BuildingHub/
-  accounts/ buildings/ finance/ maintenance/ communications/ core/
-  config/
+  accounts/ buildings/ finance/ maintenance/ communications/
+  subscriptions/ support/ core/ config/
   frontend/
-  docker-compose.yml
-  requirements.txt
 ```
 
-PostgreSQL روی پورت `5433` مپ شده است تا با سرویس‌های محلی تداخل نداشته باشد.
+PostgreSQL روی پورت `5433` مپ شده است.

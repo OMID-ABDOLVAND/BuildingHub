@@ -10,6 +10,7 @@ export type User = {
   managed_buildings: number[]
   member_buildings: number[]
   roles: string[]
+  platform_role?: string
 }
 
 export type Building = {
@@ -21,10 +22,14 @@ export type Building = {
   manager_name: string
   contact_phone: string
   contact_email: string
+  floors_count?: number
+  apartments_count?: number
+  status?: string
   is_active: boolean
   units_count: number
+  subscription_status?: string | null
+  management_allowed?: boolean
 }
-
 export type Unit = {
   id: number
   building: number
